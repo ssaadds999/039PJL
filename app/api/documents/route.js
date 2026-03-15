@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import supabase from "@/lib/supabase";
+import { Buffer } from "buffer";
 
 /* =========================
    POST : upload document
@@ -47,13 +48,16 @@ export async function POST(req) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const fileName = `${Date.now()}-${file.name}`;
+    const safeName = file.name.replace(/\s+/g, "_");
+    const fileName = `${Date.now()}-${safeName}`;
+    const filePathStorage = `documents/${fileName}`;
+
     const documentCode = `DOC-${Date.now()}`;
 
-    /* ===== upload file ===== */
+    /* ===== upload file to storage ===== */
     const { error: uploadError } = await supabase.storage
       .from("documents")
-      .upload(fileName, buffer, {
+      .upload(filePathStorage, buffer, {
         contentType: "application/pdf",
         upsert: false
       });
@@ -69,7 +73,7 @@ export async function POST(req) {
     /* ===== get public url ===== */
     const { data } = supabase.storage
       .from("documents")
-      .getPublicUrl(fileName);
+      .getPublicUrl(filePathStorage);
 
     const filePath = data.publicUrl;
 
@@ -140,11 +144,9 @@ export async function GET(req) {
       .order("uploadedAt", { ascending: false });
 
     if (role === "user") {
-
       query = query.or(
         `documentType.eq.shared,and(documentType.eq.personal,uploadedBy.eq.${userId})`
       );
-
     }
 
     const { data, error } = await query;
