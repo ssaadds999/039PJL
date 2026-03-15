@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 import supabase from "@/lib/supabase";
 
 export async function POST(req) {
@@ -15,7 +13,6 @@ export async function POST(req) {
     const tags = formData.get("tags");
     const uploadedBy = formData.get("uploadedBy");
 
-    // Validation
     if (!file) {
       return NextResponse.json(
         { success: false, message: "ไม่พบไฟล์" },
@@ -30,7 +27,6 @@ export async function POST(req) {
       );
     }
 
-    // Check file type (PDF only)
     if (file.type !== "application/pdf") {
       return NextResponse.json(
         { success: false, message: "รองรับเฉพาะไฟล์ PDF เท่านั้น" },
@@ -38,44 +34,44 @@ export async function POST(req) {
       );
     }
 
-    // Check file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { success: false, message: "ขนาดไฟล์ต้องไม่เกิน 10MB" },
+        { success: false, message: "ไฟล์ต้องไม่เกิน 10MB" },
         { status: 400 }
       );
     }
 
-    // Create uploads directory if not exists
-    const uploadsDir = path.join(process.cwd(), "public", "uploads", "documents");
-    try {
-      await mkdir(uploadsDir, { recursive: true });
-    } catch (err) {
-      // Directory already exists
-    }
-
-    // Generate unique filename
-    const timestamp = Date.now();
-    const originalName = file.name;
-    const fileExt = path.extname(originalName);
-    const fileName = `${timestamp}-${Math.random().toString(36).substring(7)}${fileExt}`;
-    const filePath = `/uploads/documents/${fileName}`;
-    const fullPath = path.join(uploadsDir, fileName);
-    const documentCode = `DOC-${Date.now()}`;
-
-    // Save file
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    await writeFile(fullPath, buffer);
 
-    // Save to database
+    const fileName = `${Date.now()}-${file.name}`;
+    const documentCode = `DOC-${Date.now()}`;
+
+    // upload ไป Supabase Storage
+    const { data: uploadData, error: uploadError } =
+      await supabase.storage
+        .from("documents")
+        .upload(fileName, buffer, {
+          contentType: "application/pdf",
+        });
+
+    if (uploadError) {
+      console.error(uploadError);
+      return NextResponse.json(
+        { success: false, message: "อัปโหลดไฟล์ไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
+
+    const filePath = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${fileName}`;
+
     const { data, error } = await supabase
-      .from('documents')
+      .from("documents")
       .insert({
         documentCode,
         fileName,
-        originalName,
+        originalName: file.name,
         fileSize: file.size,
         filePath,
         category,
@@ -90,7 +86,7 @@ export async function POST(req) {
     if (error) {
       console.error(error);
       return NextResponse.json(
-        { success: false, message: "อัปโหลดไฟล์ไม่สำเร็จ" },
+        { success: false, message: "บันทึกข้อมูลไม่สำเร็จ" },
         { status: 500 }
       );
     }
@@ -99,9 +95,10 @@ export async function POST(req) {
       success: true,
       message: "อัปโหลดเอกสารสำเร็จ",
       documentId: data[0].documentId,
-      fileName: fileName,
-      filePath: filePath,
+      fileName,
+      filePath,
     });
+
   } catch (err) {
     console.error("Upload error:", err);
     return NextResponse.json(
@@ -111,10 +108,10 @@ export async function POST(req) {
   }
 }
 
-// GET - ดึงรายการเอกสาร
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
+
     const userId = searchParams.get("userId");
     const role = searchParams.get("role");
     const category = searchParams.get("category");
@@ -128,30 +125,27 @@ export async function GET(req) {
     }
 
     let query = supabase
-      .from('documents')
+      .from("documents")
       .select(`
         *,
         users!uploadedBy (
           fullName
         )
       `)
-      .order('uploadedAt', { ascending: false });
+      .order("uploadedAt", { ascending: false });
 
-    // Role-based access control
     if (role === "user") {
-      // User เห็นเฉพาะเอกสารส่วนรวม + เอกสารส่วนตัวของตัวเอง
-      query = query.or(`documentType.eq.shared,and(documentType.eq.personal,uploadedBy.eq.${userId})`);
+      query = query.or(
+        `documentType.eq.shared,and(documentType.eq.personal,uploadedBy.eq.${userId})`
+      );
     }
-    // admin และ manager เห็นเอกสารทั้งหมด
 
-    // Filter by category
     if (category && category !== "all") {
-      query = query.eq('category', category);
+      query = query.eq("category", category);
     }
 
-    // Filter by document type
     if (documentType && documentType !== "all") {
-      query = query.eq('documentType', documentType);
+      query = query.eq("documentType", documentType);
     }
 
     const { data: documents, error } = await query;
