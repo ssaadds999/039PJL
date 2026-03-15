@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import supabase from "@/lib/supabase";
 
+/* =========================
+   POST : upload document
+========================= */
 export async function POST(req) {
   try {
     const formData = await req.formData();
@@ -22,14 +25,14 @@ export async function POST(req) {
 
     if (!title || !category || !documentType || !uploadedBy) {
       return NextResponse.json(
-        { success: false, message: "กรุณากรอกข้อมูลให้ครบ" },
+        { success: false, message: "กรอกข้อมูลไม่ครบ" },
         { status: 400 }
       );
     }
 
     if (file.type !== "application/pdf") {
       return NextResponse.json(
-        { success: false, message: "รองรับเฉพาะไฟล์ PDF เท่านั้น" },
+        { success: false, message: "รองรับเฉพาะ PDF" },
         { status: 400 }
       );
     }
@@ -47,7 +50,7 @@ export async function POST(req) {
     const fileName = `${Date.now()}-${file.name}`;
     const documentCode = `DOC-${Date.now()}`;
 
-    // upload file ไป storage
+    /* ===== upload file ===== */
     const { error: uploadError } = await supabase.storage
       .from("documents")
       .upload(fileName, buffer, {
@@ -63,15 +66,15 @@ export async function POST(req) {
       );
     }
 
-    // สร้าง public URL
-    const { data: publicUrl } = supabase.storage
+    /* ===== get public url ===== */
+    const { data } = supabase.storage
       .from("documents")
       .getPublicUrl(fileName);
 
-    const filePath = publicUrl.publicUrl;
+    const filePath = data.publicUrl;
 
-    // insert database
-    const { data, error } = await supabase
+    /* ===== insert database ===== */
+    const { data: row, error } = await supabase
       .from("documents")
       .insert({
         documentCode,
@@ -99,49 +102,49 @@ export async function POST(req) {
 
     return NextResponse.json({
       success: true,
-      message: "อัปโหลดเอกสารสำเร็จ",
-      documentId: data.documentId,
-      fileName,
+      message: "อัปโหลดสำเร็จ",
+      documentId: row.documentId,
       filePath
     });
 
   } catch (err) {
-    console.error("UPLOAD ERROR:", err);
+    console.error("SERVER ERROR:", err);
     return NextResponse.json(
-      { success: false, message: err.message },
+      { success: false, message: "server error" },
       { status: 500 }
     );
   }
 }
 
+
+/* =========================
+   GET : list documents
+========================= */
 export async function GET(req) {
   try {
-    const { searchParams } = new URL(req.url);
 
+    const { searchParams } = new URL(req.url);
     const userId = searchParams.get("userId");
     const role = searchParams.get("role");
 
-    if (!userId || !role) {
+    if (!userId) {
       return NextResponse.json(
-        { success: false, message: "ข้อมูลไม่ครบ" },
+        { success: false, message: "Missing userId" },
         { status: 400 }
       );
     }
 
     let query = supabase
       .from("documents")
-      .select(`
-        *,
-        users!uploadedBy (
-          fullName
-        )
-      `)
+      .select("*")
       .order("uploadedAt", { ascending: false });
 
     if (role === "user") {
+
       query = query.or(
         `documentType.eq.shared,and(documentType.eq.personal,uploadedBy.eq.${userId})`
       );
+
     }
 
     const { data, error } = await query;
@@ -162,7 +165,7 @@ export async function GET(req) {
   } catch (err) {
     console.error("GET ERROR:", err);
     return NextResponse.json(
-      { success: false, message: err.message },
+      { success: false, message: "server error" },
       { status: 500 }
     );
   }
