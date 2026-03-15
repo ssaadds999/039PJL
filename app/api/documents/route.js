@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import supabase from "@/lib/supabase";
 import { Buffer } from "buffer";
@@ -45,19 +46,19 @@ export async function POST(req) {
       );
     }
 
+    /* ===== convert file ===== */
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
+    /* ===== create safe filename ===== */
     const safeName = file.name.replace(/\s+/g, "_");
     const fileName = `${Date.now()}-${safeName}`;
-    const filePathStorage = `documents/${fileName}`;
-
     const documentCode = `DOC-${Date.now()}`;
 
-    /* ===== upload file to storage ===== */
+    /* ===== upload to storage ===== */
     const { error: uploadError } = await supabase.storage
       .from("documents")
-      .upload(filePathStorage, buffer, {
+      .upload(fileName, buffer, {
         contentType: "application/pdf",
         upsert: false
       });
@@ -73,11 +74,11 @@ export async function POST(req) {
     /* ===== get public url ===== */
     const { data } = supabase.storage
       .from("documents")
-      .getPublicUrl(filePathStorage);
+      .getPublicUrl(fileName);
 
     const filePath = data.publicUrl;
 
-    /* ===== insert database ===== */
+    /* ===== insert to database ===== */
     const { data: row, error } = await supabase
       .from("documents")
       .insert({
@@ -140,8 +141,7 @@ export async function GET(req) {
 
     let query = supabase
       .from("documents")
-      .select("*")
-      .order("uploadedAt", { ascending: false });
+      .select("*");
 
     if (role === "user") {
       query = query.or(
