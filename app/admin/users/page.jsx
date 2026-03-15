@@ -25,7 +25,7 @@ export default function UsersPage() {
 
   return (
     <div>
-      <h1>Users Page</h1>
+      <h1>Users</h1>
       <button onClick={createUser}>Create User</button>
     </div>
   );
