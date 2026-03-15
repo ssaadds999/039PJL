@@ -48,7 +48,6 @@ export default function DashboardPage() {
 
       if (data.success) {
         setRequests(data.requests);
-        // คำนวณสถิติจากข้อมูลจริง
         calculateStats(data.requests, userData.role);
       }
     } catch (error) {
@@ -67,7 +66,7 @@ export default function DashboardPage() {
       draft: requestsData.filter(r => r.status === 'draft').length,
       today: requestsData.filter(r => {
         const today = new Date().toDateString();
-        const reqDate = new Date(r.created_at).toDateString();
+        const reqDate = new Date(r.created_at || r.createdAt || r.createdat).toDateString();
         return today === reqDate;
       }).length,
       totalRequests: requestsData.length
@@ -96,22 +95,14 @@ export default function DashboardPage() {
     router.push("/admin/management/bucket-management");
   };
 
-  const goToRequestDetail = (id) => {
-    if (!id) return;
-    router.push(`/dashboard/requests/${id}`);
-  };
-
-  const updateStatus = async (id, status) => {
-    try {
-      await fetch(`/api/requests/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      fetchDashboardData(user);
-    } catch (err) {
-      console.error("Update status error:", err);
+  // Helper: ดึง field ที่อาจมีชื่อต่างกัน
+  const getField = (req, ...keys) => {
+    for (const key of keys) {
+      if (req[key] !== undefined && req[key] !== null && req[key] !== "") {
+        return req[key];
+      }
     }
+    return null;
   };
 
   if (!mounted || loading) {
@@ -161,23 +152,19 @@ export default function DashboardPage() {
     ({
       pending: {
         label: "รออนุมัติ",
-        color:
-          "bg-gradient-to-r from-yellow-100 to-yellow-50 text-yellow-700 border border-yellow-200",
+        color: "bg-gradient-to-r from-yellow-100 to-yellow-50 text-yellow-700 border border-yellow-200",
       },
       approved: {
         label: "อนุมัติแล้ว",
-        color:
-          "bg-gradient-to-r from-green-100 to-green-50 text-green-700 border border-green-200",
+        color: "bg-gradient-to-r from-green-100 to-green-50 text-green-700 border border-green-200",
       },
       rejected: {
         label: "ปฏิเสธ",
-        color:
-          "bg-gradient-to-r from-red-100 to-red-50 text-red-700 border border-red-200",
+        color: "bg-gradient-to-r from-red-100 to-red-50 text-red-700 border border-red-200",
       },
     }[status] || {
       label: "รออนุมัติ",
-      color:
-        "bg-gradient-to-r from-yellow-100 to-yellow-50 text-yellow-700 border border-yellow-200",
+      color: "bg-gradient-to-r from-yellow-100 to-yellow-50 text-yellow-700 border border-yellow-200",
     });
 
   const getRoleDisplay = (role) =>
@@ -201,6 +188,33 @@ export default function DashboardPage() {
         bg: "bg-green-50",
       },
     }[role]);
+
+  // Format date helper
+  const formatDate = (req) => {
+    const raw = getField(req, "created_at", "createdAt", "createdat", "date", "createdDate");
+    if (!raw) return "-";
+    try {
+      return new Date(raw).toLocaleDateString("th-TH");
+    } catch {
+      return "-";
+    }
+  };
+
+  // Format request ID helper
+  const formatRequestId = (req) => {
+    return getField(req, "requestId", "request_id", "id", "requestID") || "-";
+  };
+
+  // Format item name helper
+  const formatItemName = (req) => {
+    return getField(req, "itemName", "item_name", "title", "name") || "-";
+  };
+
+  // Format total amount helper
+  const formatAmount = (req) => {
+    const val = getField(req, "totalAmount", "total_amount", "amount");
+    return Number(val || 0).toLocaleString("th-TH", { minimumFractionDigits: 2 });
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-violet-50 via-purple-50 to-fuchsia-50">
@@ -398,7 +412,6 @@ export default function DashboardPage() {
                   {/* เมนูสำหรับ Admin */}
                   {user.role === "admin" && (
                     <>
-                      {/* จัดการ Bucket Items */}
                       <div className="flex items-center justify-between p-5 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-100 hover:shadow-md transition-shadow duration-200">
                         <div className="flex items-center space-x-4">
                           <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-500 rounded-xl flex items-center justify-center text-white text-xl shadow-lg">
@@ -421,7 +434,6 @@ export default function DashboardPage() {
                         </button>
                       </div>
 
-                      {/* จัดการผู้ใช้ */}
                       <div className="flex items-center justify-between p-5 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-100 hover:shadow-md transition-shadow duration-200">
                         <div className="flex items-center space-x-4">
                           <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center text-white text-xl shadow-lg">
@@ -492,36 +504,31 @@ export default function DashboardPage() {
                             <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
                               วันที่
                             </th>
-                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">
-                              การดำเนินการ
-                            </th>
                           </tr>
                         </thead>
 
                         <tbody className="bg-white divide-y divide-gray-100">
-                          {requests.map((req) => (
+                          {requests.map((req, index) => (
                             <tr
-                              key={req.requestId}
+                              key={formatRequestId(req) !== "-" ? formatRequestId(req) : index}
                               className="hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-cyan-50/50 transition-all duration-200"
                             >
+                              {/* รหัส */}
                               <td className="px-6 py-4 text-sm font-semibold text-gray-800">
-                                {req.requestId}
+                                {formatRequestId(req)}
                               </td>
 
+                              {/* รายการ */}
                               <td className="px-6 py-4 text-sm text-gray-700 font-medium">
-                                {req.itemName || "-"}
+                                {formatItemName(req)}
                               </td>
 
+                              {/* จำนวนเงิน */}
                               <td className="px-6 py-4 text-sm font-bold text-gray-800">
-                                ฿
-                                {Number(req.totalAmount || 0).toLocaleString(
-                                  "th-TH",
-                                  {
-                                    minimumFractionDigits: 2,
-                                  }
-                                )}
+                                ฿{formatAmount(req)}
                               </td>
 
+                              {/* สถานะ */}
                               <td className="px-6 py-4">
                                 <span
                                   className={`px-4 py-2 rounded-full text-xs font-semibold ${getStatusBadge(req.status).color} inline-block`}
@@ -530,23 +537,9 @@ export default function DashboardPage() {
                                 </span>
                               </td>
 
+                              {/* วันที่ */}
                               <td className="px-6 py-4 text-sm text-gray-500">
-                                {req.created_at
-                                  ? new Date(req.created_at).toLocaleDateString(
-                                      "th-TH"
-                                    )
-                                  : "-"}
-                              </td>
-
-                              <td className="px-6 py-4 text-sm">
-                                <button
-                                  onClick={() =>
-                                    goToRequestDetail(req.requestId)
-                                  }
-                                  className="text-blue-600 hover:text-blue-700 font-semibold hover:underline transition-colors duration-200"
-                                >
-                                  ดูรายละเอียด →
-                                </button>
+                                {formatDate(req)}
                               </td>
                             </tr>
                           ))}
