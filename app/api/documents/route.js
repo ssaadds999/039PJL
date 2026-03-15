@@ -34,8 +34,7 @@ export async function POST(req) {
       );
     }
 
-    const maxSize = 10 * 1024 * 1024;
-    if (file.size > maxSize) {
+    if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json(
         { success: false, message: "ไฟล์ต้องไม่เกิน 10MB" },
         { status: 400 }
@@ -48,24 +47,30 @@ export async function POST(req) {
     const fileName = `${Date.now()}-${file.name}`;
     const documentCode = `DOC-${Date.now()}`;
 
-    // upload ไป Supabase Storage
-    const { data: uploadData, error: uploadError } =
-      await supabase.storage
-        .from("documents")
-        .upload(fileName, buffer, {
-          contentType: "application/pdf",
-        });
+    // upload file ไป storage
+    const { error: uploadError } = await supabase.storage
+      .from("documents")
+      .upload(fileName, buffer, {
+        contentType: "application/pdf",
+        upsert: false
+      });
 
     if (uploadError) {
-      console.error(uploadError);
+      console.error("UPLOAD ERROR:", uploadError);
       return NextResponse.json(
-        { success: false, message: "อัปโหลดไฟล์ไม่สำเร็จ" },
+        { success: false, message: uploadError.message },
         { status: 500 }
       );
     }
 
-    const filePath = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${fileName}`;
+    // สร้าง public URL
+    const { data: publicUrl } = supabase.storage
+      .from("documents")
+      .getPublicUrl(fileName);
 
+    const filePath = publicUrl.publicUrl;
+
+    // insert database
     const { data, error } = await supabase
       .from("documents")
       .insert({
@@ -76,17 +81,18 @@ export async function POST(req) {
         filePath,
         category,
         documentType,
-        uploadedBy: parseInt(uploadedBy),
+        uploadedBy: Number(uploadedBy),
         title,
         description: description || null,
-        tags: tags || null,
+        tags: tags || null
       })
-      .select();
+      .select()
+      .single();
 
     if (error) {
-      console.error(error);
+      console.error("DB ERROR:", error);
       return NextResponse.json(
-        { success: false, message: "บันทึกข้อมูลไม่สำเร็จ" },
+        { success: false, message: error.message },
         { status: 500 }
       );
     }
@@ -94,15 +100,15 @@ export async function POST(req) {
     return NextResponse.json({
       success: true,
       message: "อัปโหลดเอกสารสำเร็จ",
-      documentId: data[0].documentId,
+      documentId: data.documentId,
       fileName,
-      filePath,
+      filePath
     });
 
   } catch (err) {
-    console.error("Upload error:", err);
+    console.error("UPLOAD ERROR:", err);
     return NextResponse.json(
-      { success: false, message: "อัปโหลดไฟล์ไม่สำเร็จ" },
+      { success: false, message: err.message },
       { status: 500 }
     );
   }
@@ -114,8 +120,6 @@ export async function GET(req) {
 
     const userId = searchParams.get("userId");
     const role = searchParams.get("role");
-    const category = searchParams.get("category");
-    const documentType = searchParams.get("documentType");
 
     if (!userId || !role) {
       return NextResponse.json(
@@ -140,33 +144,25 @@ export async function GET(req) {
       );
     }
 
-    if (category && category !== "all") {
-      query = query.eq("category", category);
-    }
-
-    if (documentType && documentType !== "all") {
-      query = query.eq("documentType", documentType);
-    }
-
-    const { data: documents, error } = await query;
+    const { data, error } = await query;
 
     if (error) {
-      console.error(error);
+      console.error("FETCH ERROR:", error);
       return NextResponse.json(
-        { success: false, message: "ดึงข้อมูลไม่สำเร็จ" },
+        { success: false, message: error.message },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      documents,
+      documents: data
     });
 
   } catch (err) {
-    console.error("Get documents error:", err);
+    console.error("GET ERROR:", err);
     return NextResponse.json(
-      { success: false, message: "ดึงข้อมูลไม่สำเร็จ" },
+      { success: false, message: err.message },
       { status: 500 }
     );
   }
