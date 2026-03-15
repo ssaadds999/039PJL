@@ -1,0 +1,11 @@
+{
+    "name": "acer/dd039",
+    "autoload": {
+        "psr-4": {
+            "Acer\\Dd039\\": "src/"
+        }
+    },
+    "require": {
+        "mpdf/mpdf": "^8.2"
+    }
+}
