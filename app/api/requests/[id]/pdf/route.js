@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import supabase from "@/lib/supabase";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+import fs from "fs";
+import path from "path";
 
 /* ===== แปลงวันที่ภาษาไทย ===== */
 function formatThaiDate(dateStr) {
@@ -76,18 +78,10 @@ export async function GET(req, context) {
       }];
     }
 
-    /* ===== โหลด font Sarabun (woff) จาก CDN — รองรับภาษาไทย ===== */
-    const [ttfNormalRes, ttfBoldRes] = await Promise.all([
-      fetch("https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.0.8/files/sarabun-thai-400-normal.woff"),
-      fetch("https://cdn.jsdelivr.net/npm/@fontsource/sarabun@5.0.8/files/sarabun-thai-700-normal.woff"),
-    ]);
-
-    if (!ttfNormalRes.ok || !ttfBoldRes.ok) {
-      throw new Error("Failed to load Thai font from CDN");
-    }
-
-    const fontNormalBytes = await ttfNormalRes.arrayBuffer();
-    const fontBoldBytes   = await ttfBoldRes.arrayBuffer();
+    /* ===== โหลด font จาก public/fonts (TTF มี Thai+Latin ครบ) ===== */
+    const fontDir         = path.join(process.cwd(), "public", "fonts");
+    const fontNormalBytes = fs.readFileSync(path.join(fontDir, "Sarabun-Regular.ttf"));
+    const fontBoldBytes   = fs.readFileSync(path.join(fontDir, "Sarabun-Bold.ttf"));
 
     /* ===== สร้าง PDF ===== */
     const pdfDoc = await PDFDocument.create();
@@ -96,7 +90,7 @@ export async function GET(req, context) {
     const fontNormal = await pdfDoc.embedFont(fontNormalBytes);
     const fontBold   = await pdfDoc.embedFont(fontBoldBytes);
 
-    const page = pdfDoc.addPage([595, 842]);
+    const page = pdfDoc.addPage([595, 842]); // A4
     const { width, height } = page.getSize();
 
     const black = rgb(0,    0,    0);
@@ -106,7 +100,6 @@ export async function GET(req, context) {
     const light = rgb(0.93, 0.95, 0.98);
 
     const requestType = requestData.requestType === "purchase" ? "จัดซื้อ" : "จัดจ้าง";
-    const totalAmount = Number(requestData.totalAmount || 0);
 
     let y = height - 50;
 
@@ -130,7 +123,7 @@ export async function GET(req, context) {
     const col2 = width / 2 + 20;
 
     const drawInfo = (label, value, x, yy) => {
-      page.drawText(label, { x, y: yy,      size: 9,  font: fontBold,   color: gray  });
+      page.drawText(label, { x, y: yy,       size: 9,  font: fontBold,   color: gray  });
       page.drawText(String(value || "-"), { x, y: yy - 14, size: 11, font: fontNormal, color: black });
     };
 
@@ -172,8 +165,14 @@ export async function GET(req, context) {
       page.drawText(String(idx + 1),    { x: colX[0], y: y - 15, size: 10, font: fontNormal, color: black });
       page.drawText(truncate(name, 22), { x: colX[1], y: y - 15, size: 10, font: fontNormal, color: black });
       page.drawText(String(qty),        { x: colX[2], y: y - 15, size: 10, font: fontNormal, color: black });
-      page.drawText(unitPrice.toLocaleString("th-TH", { minimumFractionDigits: 2 }), { x: colX[3], y: y - 15, size: 10, font: fontNormal, color: black });
-      page.drawText(subtotal.toLocaleString("th-TH",  { minimumFractionDigits: 2 }), { x: colX[4], y: y - 15, size: 10, font: fontNormal, color: black });
+      page.drawText(
+        unitPrice.toLocaleString("th-TH", { minimumFractionDigits: 2 }),
+        { x: colX[3], y: y - 15, size: 10, font: fontNormal, color: black }
+      );
+      page.drawText(
+        subtotal.toLocaleString("th-TH", { minimumFractionDigits: 2 }),
+        { x: colX[4], y: y - 15, size: 10, font: fontNormal, color: black }
+      );
 
       y -= rowH;
     });
@@ -181,7 +180,9 @@ export async function GET(req, context) {
     /* ── total row ── */
     y -= 4;
     page.drawRectangle({ x: 30, y: y - 24, width: width - 60, height: 24, color: navy });
-    page.drawText("ยอดรวมทั้งสิ้น", { x: colX[3] - 70, y: y - 16, size: 10, font: fontBold, color: white });
+    page.drawText("ยอดรวมทั้งสิ้น", {
+      x: colX[3] - 70, y: y - 16, size: 10, font: fontBold, color: white,
+    });
     page.drawText(
       grandTotal.toLocaleString("th-TH", { minimumFractionDigits: 2 }),
       { x: colX[4], y: y - 16, size: 10, font: fontBold, color: white }
@@ -193,9 +194,12 @@ export async function GET(req, context) {
     const sigY = y - 80;
 
     const drawSigBox = async (label, name, date, sig, x) => {
-      page.drawRectangle({ x, y: sigY, width: 180, height: 80,
-        borderColor: rgb(0.8, 0.8, 0.8), borderWidth: 0.5 });
+      page.drawRectangle({
+        x, y: sigY, width: 180, height: 80,
+        borderColor: rgb(0.8, 0.8, 0.8), borderWidth: 0.5,
+      });
 
+      // embed ลายเซ็น image
       if (sig && sig.includes("base64,")) {
         try {
           const imgBytes = Buffer.from(sig.split("base64,")[1], "base64");
@@ -208,9 +212,9 @@ export async function GET(req, context) {
         }
       }
 
-      page.drawText(label,           { x: x + 10, y: sigY - 14, size: 9, font: fontBold,   color: gray  });
-      if (name) page.drawText(name,  { x: x + 10, y: sigY - 26, size: 9, font: fontNormal, color: black });
-      page.drawText(date,            { x: x + 10, y: sigY - 38, size: 9, font: fontNormal, color: gray  });
+      page.drawText(label, { x: x + 10, y: sigY - 14, size: 9, font: fontBold,   color: gray  });
+      if (name) page.drawText(name, { x: x + 10, y: sigY - 26, size: 9, font: fontNormal, color: black });
+      page.drawText(date,  { x: x + 10, y: sigY - 38, size: 9, font: fontNormal, color: gray  });
     };
 
     await drawSigBox(
