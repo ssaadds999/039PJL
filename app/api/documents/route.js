@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
-import pool from "@/lib/db";
+import supabase from "@/lib/supabase";
 
 export async function POST(req) {
   try {
     const formData = await req.formData();
-    
+
     const file = formData.get("file");
     const title = formData.get("title");
     const description = formData.get("description");
@@ -70,32 +70,35 @@ export async function POST(req) {
     await writeFile(fullPath, buffer);
 
     // Save to database
-    const [result] = await pool.query(
-  `
-  INSERT INTO documents
-  (documentCode, fileName, originalName, fileSize, filePath, category, documentType, uploadedBy, title, description, tags)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `,
-  [
-    documentCode,          // ⭐ เพิ่ม
-    fileName,
-    originalName,
-    file.size,
-    filePath,
-    category,
-    documentType,
-    uploadedBy,
-    title,
-    description || null,
-    tags || null,
-  ]
-);
+    const { data, error } = await supabase
+      .from('documents')
+      .insert({
+        documentCode,
+        fileName,
+        originalName,
+        fileSize: file.size,
+        filePath,
+        category,
+        documentType,
+        uploadedBy: parseInt(uploadedBy),
+        title,
+        description: description || null,
+        tags: tags || null,
+      })
+      .select();
 
+    if (error) {
+      console.error(error);
+      return NextResponse.json(
+        { success: false, message: "อัปโหลดไฟล์ไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       message: "อัปโหลดเอกสารสำเร็จ",
-      documentId: result.insertId,
+      documentId: data[0].documentId,
       fileName: fileName,
       filePath: filePath,
     });
@@ -124,44 +127,47 @@ export async function GET(req) {
       );
     }
 
-    let query = `
-      SELECT 
-        d.*,
-        u.fullName as uploaderName
-      FROM documents d
-      LEFT JOIN users u ON d.uploadedBy = u.userId
-      WHERE 1=1
-    `;
-    const params = [];
+    let query = supabase
+      .from('documents')
+      .select(`
+        *,
+        users!uploadedBy (
+          fullName
+        )
+      `)
+      .order('uploadedAt', { ascending: false });
 
     // Role-based access control
     if (role === "user") {
       // User เห็นเฉพาะเอกสารส่วนรวม + เอกสารส่วนตัวของตัวเอง
-      query += ` AND (d.documentType = 'shared' OR (d.documentType = 'personal' AND d.uploadedBy = ?))`;
-      params.push(userId);
+      query = query.or(`documentType.eq.shared,and(documentType.eq.personal,uploadedBy.eq.${userId})`);
     }
     // admin และ manager เห็นเอกสารทั้งหมด
 
     // Filter by category
     if (category && category !== "all") {
-      query += ` AND d.category = ?`;
-      params.push(category);
+      query = query.eq('category', category);
     }
 
     // Filter by document type
     if (documentType && documentType !== "all") {
-      query += ` AND d.documentType = ?`;
-      params.push(documentType);
+      query = query.eq('documentType', documentType);
     }
 
-    query += ` ORDER BY d.uploadedAt DESC`;
+    const { data: documents, error } = await query;
 
-    const [documents] = await pool.query(query, params);
+    if (error) {
+      console.error(error);
+      return NextResponse.json(
+        { success: false, message: "ดึงข้อมูลไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
 
-return NextResponse.json({
-  success: true,
-  documents,
-});
+    return NextResponse.json({
+      success: true,
+      documents,
+    });
 
   } catch (err) {
     console.error("Get documents error:", err);

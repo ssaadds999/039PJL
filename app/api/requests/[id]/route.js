@@ -1,24 +1,23 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import supabase from "@/lib/supabase";
 
 /* ===== GET ===== */
 export async function GET(req, context) {
   try {
     const { id } = await context.params;
 
-    const [rows] = await pool.query(
-      `
-      SELECT
-        pr.*,
-        u.fullName AS submitterName
-      FROM purchase_requests pr
-      LEFT JOIN users u ON pr.submitterId = u.userId
-      WHERE pr.requestId = ?
-      `,
-      [id]
-    );
+    const { data: rows, error } = await supabase
+      .from('purchase_requests')
+      .select(`
+        *,
+        users!submitterId (
+          fullName
+        )
+      `)
+      .eq('requestId', id)
+      .single();
 
-    if (!rows || rows.length === 0) {
+    if (error || !rows) {
       return NextResponse.json(
         { success: false, message: "ไม่พบคำขอ" },
         { status: 404 }
@@ -27,7 +26,7 @@ export async function GET(req, context) {
 
     return NextResponse.json({
       success: true,
-      request: rows[0],
+      request: rows,
     });
   } catch (err) {
     console.error(err);
@@ -53,23 +52,21 @@ export async function PUT(req, context) {
       );
     }
 
-    const [result] = await pool.query(
-      `
-      UPDATE purchase_requests
-      SET
-        status = ?,
-        managerId = ?,
-        managerSignature = ?,
-        approvedAt = NOW()
-      WHERE requestId = ?
-      `,
-      [status, managerId, managerSignature, id]
-    );
+    const { error } = await supabase
+      .from('purchase_requests')
+      .update({
+        status,
+        managerId,
+        managerSignature,
+        approvedAt: new Date().toISOString()
+      })
+      .eq('requestId', id);
 
-    if (result.affectedRows === 0) {
+    if (error) {
+      console.error(error);
       return NextResponse.json(
-        { success: false, message: "ไม่พบรายการ" },
-        { status: 404 }
+        { success: false, message: "server error" },
+        { status: 500 }
       );
     }
 

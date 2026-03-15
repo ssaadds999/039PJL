@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import supabase from "@/lib/supabase";
 import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -8,12 +8,13 @@ export async function GET(req, { params }) {
   try {
     const { id } = await params; // ✅ สำคัญมาก
 
-    const [rows] = await pool.query(
-      "SELECT status FROM purchase_requests WHERE requestId = ?",
-      [id]
-    );
+    const { data: request, error } = await supabase
+      .from('purchase_requests')
+      .select('status')
+      .eq('requestId', id)
+      .single();
 
-    if (!rows.length || rows[0].status !== "approved") {
+    if (error || !request || request.status !== "approved") {
       return NextResponse.json(
         { success: false, message: "ยังไม่อนุมัติ" },
         { status: 403 }

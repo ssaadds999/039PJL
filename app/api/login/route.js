@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { queryOne } from "@/lib/db";
+import supabase from "@/lib/supabase";
 import bcrypt from "bcryptjs";
 
 export async function POST(request) {
@@ -15,14 +15,13 @@ export async function POST(request) {
       });
     }
 
-    const user = await queryOne(
-      `SELECT userId, username, fullName, role, password
-       FROM users
-       WHERE username = ?`,
-      [username]
-    );
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('userId, username, fullName, role, password')
+      .eq('username', username)
+      .single();
 
-    if (!user) {
+    if (error || !user) {
       return NextResponse.json({
         success: false,
         message: "ไม่พบผู้ใช้นี้ในระบบ",

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { unlink } from "fs/promises";
 import path from "path";
-import { queryOne } from "@/lib/db";
-import pool from "@/lib/db";
+import supabase from "@/lib/supabase";
 
 export async function DELETE(req, { params }) {
   try {
@@ -19,12 +18,13 @@ export async function DELETE(req, { params }) {
     }
 
     // ดึงข้อมูลเอกสาร
-    const document = await queryOne(
-      "SELECT * FROM documents WHERE documentId = ?",
-      [id]
-    );
+    const { data: document, error: selectError } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('documentId', id)
+      .single();
 
-    if (!document) {
+    if (selectError || !document) {
       return NextResponse.json(
         { success: false, message: "ไม่พบเอกสาร" },
         { status: 404 }
@@ -51,7 +51,18 @@ export async function DELETE(req, { params }) {
     }
 
     // ลบจาก database
-    await pool.query("DELETE FROM documents WHERE documentId = ?", [id]);
+    const { error: deleteError } = await supabase
+      .from('documents')
+      .delete()
+      .eq('documentId', id);
+
+    if (deleteError) {
+      console.error(deleteError);
+      return NextResponse.json(
+        { success: false, message: "ลบเอกสารไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,

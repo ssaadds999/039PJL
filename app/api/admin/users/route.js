@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import supabase from "@/lib/supabase";
 import bcrypt from "bcryptjs";
 
 export async function POST(req) {
@@ -17,14 +17,23 @@ export async function POST(req) {
     const hashed = await bcrypt.hash(password, 10);
 
     // insert user (signature = NULL)
-    await pool.query(
-      `
-      INSERT INTO users
-        (username, password, fullName, role, signature)
-      VALUES (?, ?, ?, ?, NULL)
-      `,
-      [username, hashed, fullName, role]
-    );
+    const { data, error } = await supabase
+      .from('users')
+      .insert({
+        username,
+        password: hashed,
+        fullName,
+        role,
+        signature: null
+      });
+
+    if (error) {
+      console.error(error);
+      return NextResponse.json(
+        { success: false, message: "เพิ่มผู้ใช้ไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

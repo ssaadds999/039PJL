@@ -1,6 +1,6 @@
 // app/api/requests/route.js
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import supabase from "@/lib/supabase";
 
 /* =========================
    GET : ดึงรายการคำขอ
@@ -18,23 +18,23 @@ export async function GET(request) {
       );
     }
 
-    let sql = "";
-    let params = [];
+    let query;
 
     if (role === "admin") {
-      sql = `
-        SELECT
-          pr.requestId,
-          pr.itemName,
-          pr.totalAmount,
-          pr.status,
-          pr.submittedDate,
-          u.fullName AS submitterName
-        FROM purchase_requests pr
-        LEFT JOIN users u ON pr.submitterId = u.userId
-        ORDER BY pr.submittedDate DESC
-        LIMIT 10
-      `;
+      query = supabase
+        .from('purchase_requests')
+        .select(`
+          requestId,
+          itemName,
+          totalAmount,
+          status,
+          submittedDate,
+          users!submitterId (
+            fullName
+          )
+        `)
+        .order('submittedDate', { ascending: false })
+        .limit(10);
     }
 
     else if (role === "manager") {
@@ -45,20 +45,22 @@ export async function GET(request) {
         );
       }
 
-      sql = `
-        SELECT
-          pr.requestId,
-          pr.itemName,
-          pr.totalAmount,
-          pr.status,
-          pr.urgencyLevel,
-          pr.submittedDate,
-          u.fullName AS submitterName
-        FROM purchase_requests pr
-        LEFT JOIN users u ON pr.submitterId = u.userId
-        ORDER BY pr.urgencyLevel DESC, pr.submittedDate DESC
-        LIMIT 10
-      `;
+      query = supabase
+        .from('purchase_requests')
+        .select(`
+          requestId,
+          itemName,
+          totalAmount,
+          status,
+          urgencyLevel,
+          submittedDate,
+          users!submitterId (
+            fullName
+          )
+        `)
+        .order('urgencyLevel', { ascending: false })
+        .order('submittedDate', { ascending: false })
+        .limit(10);
     }
 
     else if (role === "user") {
@@ -69,19 +71,18 @@ export async function GET(request) {
         );
       }
 
-      sql = `
-        SELECT
-          pr.requestId,
-          pr.itemName,
-          pr.totalAmount,
-          pr.status,
-          pr.submittedDate
-        FROM purchase_requests pr
-        WHERE pr.submitterId = ?
-        ORDER BY pr.submittedDate DESC
-        LIMIT 10
-      `;
-      params = [userId];
+      query = supabase
+        .from('purchase_requests')
+        .select(`
+          requestId,
+          itemName,
+          totalAmount,
+          status,
+          submittedDate
+        `)
+        .eq('submitterId', userId)
+        .order('submittedDate', { ascending: false })
+        .limit(10);
     }
 
     else {
@@ -91,7 +92,15 @@ export async function GET(request) {
       );
     }
 
-    const [rows] = await pool.query(sql, params);
+    const { data: rows, error } = await query;
+
+    if (error) {
+      console.error(error);
+      return NextResponse.json(
+        { success: false, message: "เกิดข้อผิดพลาดในการดึงข้อมูล" },
+        { status: 500 }
+      );
+    }
 
     const requests = rows.map((r) => ({
       requestId: r.requestId,
@@ -99,6 +108,7 @@ export async function GET(request) {
       amount: Number(r.totalAmount),
       status: r.status,
       submittedDate: r.submittedDate,
+      submitterName: r.users?.fullName,
     }));
 
     return NextResponse.json({
@@ -145,39 +155,33 @@ export async function POST(request) {
     }
 
     // บันทึกคำขอหลัก
-    const [result] = await pool.query(
-      `
-      INSERT INTO purchase_requests
-      (
-        submitterId,
-        itemName,
-        quantity,
-        unitPrice,
-        totalAmount,
-        itemsJson,
-        attachedFilesJson,
+    const { data, error } = await supabase
+      .from('purchase_requests')
+      .insert({
+        submitterId: userId,
+        itemName: items.map(item => item.name).join(', '),
+        quantity: items.length,
+        unitPrice: 1,
+        totalAmount: totalAmount || items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0),
+        itemsJson: JSON.stringify(items),
+        attachedFilesJson: JSON.stringify(attachedFiles || []),
         requestType,
-        status,
-        signature
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-      `,
-      [
-        userId,
-        items.map(item => item.name).join(', '),
-        items.length,
-        1,
-        totalAmount || items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0),
-        JSON.stringify(items),
-        JSON.stringify(attachedFiles || []),
-        requestType,
+        status: 'pending',
         signature,
-      ]
-    );
+      })
+      .select();
 
-    return NextResponse.json({ 
+    if (error) {
+      console.error(error);
+      return NextResponse.json(
+        { success: false, message: "สร้างคำขอไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
       success: true,
-      requestId: result.insertId 
+      requestId: data[0].requestId
     });
 
   } catch (error) {

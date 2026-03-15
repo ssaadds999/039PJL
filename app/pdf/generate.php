@@ -10,27 +10,104 @@ $id = $argv[1] ?? null;
 $output = $argv[2] ?? null;
 if (!$id || !$output) exit("Missing args");
 
-/* ===== DB ===== */
-$pdo = new PDO(
-    "mysql:host=localhost;dbname=progress_purchase_system;charset=utf8mb4",
-    "root",
-    "",
-    [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]
-);
+/* ===== Supabase Config ===== */
+$supabaseUrl = getenv('NEXT_PUBLIC_SUPABASE_URL') ?: 'https://your-project.supabase.co';
+$supabaseKey = getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY') ?: 'your-anon-key';
 
 /* ===== data ===== */
-$stmt = $pdo->prepare("
-    SELECT pr.*, u.fullName AS submitterName
-    FROM purchase_requests pr
-    LEFT JOIN users u ON pr.submitterId = u.userId
-    WHERE pr.requestId = ?
-");
-$stmt->execute([$id]);
-$r = $stmt->fetch();
-if (!$r) exit("Not found");
+function supabaseQuery($table, $params = []) {
+    global $supabaseUrl, $supabaseKey;
+    $url = $supabaseUrl . '/rest/v1/' . $table . '?' . http_build_query($params);
+    
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'apikey: ' . $supabaseKey,
+        'Authorization: Bearer ' . $supabaseKey,
+        'Content-Type: application/json'
+    ]);
+    $response = curl_exec($ch);
+    curl_close($ch);
+    
+    return json_decode($response, true);
+}
+
+$data = supabaseQuery('purchase_requests', [
+    'requestId' => 'eq.' . $id,
+    'select' => '*,users!submitterId(fullName)'
+]);
+
+if (!$data || count($data) === 0) exit("Not found");
+
+$r = $data[0];
+
+/* ===== parse items ===== */
+$items = [];
+if (!empty($r['itemsJson'])) {
+    $decoded = json_decode($r['itemsJson'], true);
+    $items = is_array($decoded) ? $decoded : [];
+}
+if (empty($items)) {
+    // fallback: create single item from legacy columns
+    $items = [[
+        'name' => $r['itemName'],
+        'quantity' => (int)$r['quantity'],
+        'unitPrice' => (float)$r['unitPrice']
+    ]];
+}
+
+/* ===== prefix ===== */
+$prefix = $r['requestType'] === 'purchase' ? 'ซื้อ' : 'จ้าง';
+
+/* ===== base64 → JPG (ตัด alpha) ===== */
+function saveSignJpg($b64, $name) {
+    if (!$b64) return null;
+
+    if (!preg_match('/base64,/', $b64)) {
+        return null;
+    }
+
+    $raw = base64_decode(substr($b64, strpos($b64, ',') + 1));
+    if (!$raw) return null;
+
+    $im = imagecreatefromstring($raw);
+    if (!$im) return null;
+
+    $w = imagesx($im);
+    $h = imagesy($im);
+
+    // พื้นหลังขาว
+    $bg = imagecreatetruecolor($w, $h);
+    $white = imagecolorallocate($bg, 255, 255, 255);
+    imagefill($bg, 0, 0, $white);
+    imagecopy($bg, $im, 0, 0, 0, 0, $w, $h);
+
+    $path = sys_get_temp_dir() . "/{$name}.jpg";
+    imagejpeg($bg, $path, 90);
+
+    imagedestroy($im);
+    imagedestroy($bg);
+
+    return str_replace('\\', '/', $path);
+}
+
+$userSignPath    = saveSignJpg($r['signature'], "user_sign_$id");
+$managerSignPath = saveSignJpg($r['managerSignature'], "mgr_sign_$id");
+
+/* ===== mPDF ===== */
+$defaultConfig = (new ConfigVariables())->getDefaults();
+$fontDirs = $defaultConfig['fontDir'];
+$fontData = (new FontVariables())->getDefaults()['fontdata'];
+
+$mpdf = new Mpdf([
+    'fontDir' => array_merge($fontDirs, [__DIR__ . '/fonts']),
+    'fontdata' => $fontData + [
+        'thsarabun' => [
+            'R'  => 'THSarabunNew.ttf',
+            'B'  => 'THSarabunNew-Bold.ttf',
+            'I'  => 'THSarabunNew-Italic.ttf',
+            'BI' => 'THSarabunNew-BoldItalic.ttf',
 
 /* ===== parse items ===== */
 $items = [];

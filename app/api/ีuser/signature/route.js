@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import pool from "@/lib/db";
+import supabase from "@/lib/supabase";
 
 export async function GET(req) {
   try {
@@ -13,14 +13,23 @@ export async function GET(req) {
       );
     }
 
-    const [rows] = await pool.query(
-      "SELECT signature FROM users WHERE userId = ?",
-      [userId]
-    );
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('signature')
+      .eq('userId', userId)
+      .single();
+
+    if (error) {
+      console.error(error);
+      return NextResponse.json(
+        { success: false, message: "ดึงลายเซ็นไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      signature: rows[0]?.signature || null,
+      signature: user?.signature || null,
     });
   } catch (err) {
     console.error("GET signature error:", err);
@@ -42,10 +51,18 @@ export async function POST(req) {
       );
     }
 
-    await pool.query(
-      "UPDATE users SET signature = ? WHERE userId = ?",
-      [signature, userId]
-    );
+    const { error } = await supabase
+      .from('users')
+      .update({ signature })
+      .eq('userId', userId);
+
+    if (error) {
+      console.error(error);
+      return NextResponse.json(
+        { success: false, message: "บันทึกลายเซ็นไม่สำเร็จ" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {
