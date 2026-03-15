@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import supabase from "@/lib/supabase";
 
 /* ===== GET ===== */
-export async function GET(req, { params }) {
+export async function GET(req, context) {
   try {
-    const id = params.id;
+    const { id } = await context.params;
+
+    console.log("=== GET [id] called, id:", id);
 
     if (!id) {
       return NextResponse.json(
@@ -13,11 +15,10 @@ export async function GET(req, { params }) {
       );
     }
 
-    // ดึงข้อมูล request ก่อน
     const { data: requestData, error: requestError } = await supabase
       .from("purchase_requests")
       .select("*")
-      .eq("requestId", id)
+      .eq("requestId", Number(id))
       .single();
 
     if (requestError || !requestData) {
@@ -28,7 +29,6 @@ export async function GET(req, { params }) {
       );
     }
 
-    // ดึงชื่อผู้ยื่นแยก (ถ้า users table มีอยู่)
     let submitterName = "ไม่ทราบชื่อ";
     if (requestData.submitterId) {
       const { data: userData } = await supabase
@@ -60,9 +60,9 @@ export async function GET(req, { params }) {
 }
 
 /* ===== PUT ===== */
-export async function PUT(req, { params }) {
+export async function PUT(req, context) {
   try {
-    const id = params.id;
+    const { id } = await context.params;
     const body = await req.json();
 
     const { status, managerId, managerSignature } = body;
@@ -83,7 +83,7 @@ export async function PUT(req, { params }) {
         approvedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })
-      .eq("requestId", id);
+      .eq("requestId", Number(id));
 
     if (error) {
       console.error("UPDATE ERROR:", error);
