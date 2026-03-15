@@ -13,27 +13,41 @@ export async function GET(req, { params }) {
       );
     }
 
-    const { data, error } = await supabase
+    // ดึงข้อมูล request ก่อน
+    const { data: requestData, error: requestError } = await supabase
       .from("purchase_requests")
-      .select(`
-        *,
-        users!submitterId (
-          fullName
-        )
-      `)
+      .select("*")
       .eq("requestId", id)
       .single();
 
-    if (error || !data) {
+    if (requestError || !requestData) {
+      console.error("GET request error:", requestError);
       return NextResponse.json(
         { success: false, message: "ไม่พบคำขอ" },
         { status: 404 }
       );
     }
 
+    // ดึงชื่อผู้ยื่นแยก (ถ้า users table มีอยู่)
+    let submitterName = "ไม่ทราบชื่อ";
+    if (requestData.submitterId) {
+      const { data: userData } = await supabase
+        .from("users")
+        .select("fullName")
+        .eq("userId", requestData.submitterId)
+        .single();
+
+      if (userData?.fullName) {
+        submitterName = userData.fullName;
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      request: data,
+      request: {
+        ...requestData,
+        submitterName,
+      },
     });
 
   } catch (err) {
@@ -67,6 +81,7 @@ export async function PUT(req, { params }) {
         managerId,
         managerSignature,
         approvedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       })
       .eq("requestId", id);
 
