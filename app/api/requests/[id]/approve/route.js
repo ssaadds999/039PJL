@@ -3,6 +3,9 @@ import supabase from "@/lib/supabase";
 
 export async function GET(req, { params }) {
   try {
+    // แก้ไข: await params สำหรับ Next.js 15+
+    const { id } = await params;
+
     const { data: request, error } = await supabase
       .from('purchase_requests')
       .select(`
@@ -11,12 +14,12 @@ export async function GET(req, { params }) {
           fullName
         )
       `)
-      .eq('requestId', params.id)
+      .eq('requestId', id)
       .single();
 
     if (error || !request) {
       return NextResponse.json(
-        { success: false },
+        { success: false, message: "ไม่พบคำขอ" },
         { status: 404 }
       );
     }
@@ -28,7 +31,7 @@ export async function GET(req, { params }) {
   } catch (err) {
     console.error("GET request detail error:", err);
     return NextResponse.json(
-      { success: false },
+      { success: false, message: "server error" },
       { status: 500 }
     );
   }
