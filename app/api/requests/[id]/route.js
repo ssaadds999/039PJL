@@ -2,22 +2,29 @@ import { NextResponse } from "next/server";
 import supabase from "@/lib/supabase";
 
 /* ===== GET ===== */
-export async function GET(req, context) {
+export async function GET(req, { params }) {
   try {
-    const { id } = await context.params;
+    const id = params.id;
 
-    const { data: rows, error } = await supabase
-      .from('purchase_requests')
+    if (!id) {
+      return NextResponse.json(
+        { success: false, message: "ไม่พบ id" },
+        { status: 400 }
+      );
+    }
+
+    const { data, error } = await supabase
+      .from("purchase_requests")
       .select(`
         *,
         users!submitterId (
           fullName
         )
       `)
-      .eq('requestId', id)
+      .eq("requestId", id)
       .single();
 
-    if (error || !rows) {
+    if (error || !data) {
       return NextResponse.json(
         { success: false, message: "ไม่พบคำขอ" },
         { status: 404 }
@@ -26,10 +33,11 @@ export async function GET(req, context) {
 
     return NextResponse.json({
       success: true,
-      request: rows,
+      request: data,
     });
+
   } catch (err) {
-    console.error(err);
+    console.error("GET request error:", err);
     return NextResponse.json(
       { success: false, message: "server error" },
       { status: 500 }
@@ -37,10 +45,10 @@ export async function GET(req, context) {
   }
 }
 
-/* ===== PUT (สำคัญมาก) ===== */
-export async function PUT(req, context) {
+/* ===== PUT ===== */
+export async function PUT(req, { params }) {
   try {
-    const { id } = await context.params;
+    const id = params.id;
     const body = await req.json();
 
     const { status, managerId, managerSignature } = body;
@@ -53,19 +61,19 @@ export async function PUT(req, context) {
     }
 
     const { error } = await supabase
-      .from('purchase_requests')
+      .from("purchase_requests")
       .update({
         status,
         managerId,
         managerSignature,
-        approvedAt: new Date().toISOString()
+        approvedAt: new Date().toISOString(),
       })
-      .eq('requestId', id);
+      .eq("requestId", id);
 
     if (error) {
-      console.error(error);
+      console.error("UPDATE ERROR:", error);
       return NextResponse.json(
-        { success: false, message: "server error" },
+        { success: false, message: error.message },
         { status: 500 }
       );
     }
@@ -74,8 +82,9 @@ export async function PUT(req, context) {
       success: true,
       message: "อัปเดตสถานะเรียบร้อย",
     });
+
   } catch (err) {
-    console.error("PUT /api/requests/[id] error:", err);
+    console.error("PUT error:", err);
     return NextResponse.json(
       { success: false, message: "server error" },
       { status: 500 }
